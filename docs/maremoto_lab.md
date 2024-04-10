@@ -1,22 +1,30 @@
-# Replica Seismo - Lab Pablo
+# VirtualBox Lab: Maremoto ~~Réplica Seismo~~
 
-- [Replica Seismo - Lab Pablo](#replica-seismo---lab-pablo)
-  - [Hardware](#hardware)
-  - [Red NAT en VirtualBox](#red-nat-en-virtualbox)
-    - [`10_ubuntu_server` DHCP/DNS server (no GUI)](#10_ubuntu_server-dhcpdns-server-no-gui)
-    - [`20_ubuntu_seismo` Réplica Seísmo](#20_ubuntu_seismo-réplica-seísmo)
-    - [`4n_ubuntu` cliente (DHCP)](#4n_ubuntu-cliente-dhcp)
-    - [`4n_windows_11` cliente](#4n_windows_11-cliente)
-    - [`4n_windows_10` cliente](#4n_windows_10-cliente)
+- [VirtualBox Lab: Maremoto ~~Réplica Seismo~~](#virtualbox-lab-maremoto-réplica-seismo)
+  - [0. Info hardware y sistemas](#0-info-hardware-y-sistemas)
+  - [1. Creación de red NAT en VirtualBox](#1-creación-de-red-nat-en-virtualbox)
+  - [2. Configuración de DHCP y DNS en `10_dhcp_dns`](#2-configuración-de-dhcp-y-dns-en-10_dhcp_dns)
+  - [3. Despliegue en `20_maremoto` de software tipo SEISMO (ELK Stack, Suricata)](#3-despliegue-en-20_maremoto-de-software-tipo-seismo-elk-stack-suricata)
+    - [Uso de Netdiscover](#uso-de-netdiscover)
+    - [Configuración y uso de ELK Stack](#configuración-y-uso-de-elk-stack)
+    - [Configuración y uso de Suricata](#configuración-y-uso-de-suricata)
+  - [4. Clientes potencialmente vulnerables](#4-clientes-potencialmente-vulnerables)
+    - [Cliente `4N_ubuntu`](#cliente-4n_ubuntu)
+    - [Cliente `4N_win11_pro`](#cliente-4n_win11_pro)
+    - [Cliente `4N_win11_home`](#cliente-4n_win11_home)
+    - [Cliente `4N_win10_home`](#cliente-4n_win10_home)
+    - [Cliente `4N_win10_pro`](#cliente-4n_win10_pro)
 
 
-## Hardware
+## 0. Info hardware y sistemas
 
-Partición `k8s-cluster` de 420GB (`/dev/nvme0n1p1`) en mi máquina MSI GL76 bajo el sistema operativo Pop!_OS 22.04 LTS en la LAN 192.168.1.0/24
+Mi sistema operativo anfitrión es Pop!_OS 22.04 LTS, y uso la versión 7.0.10 de VirtualBox. Almacenamos las máquinas virtuales en la partición `k8s-cluster` de 420GB (`/dev/nvme0n1p1`) en mi máquina MSI GL76. Nuestra red local es la 192.168.1.0/24.
 
----
+En este laboratorio vamos a virtualizar varias máquinas clientes con los sistemas: Windows 11, Windows 10, ~~Windows Server~~ y Ubuntu de cara a familiarizarnos con las tecnologías de SEISMO (ELK Stack, Suricata, etc.).
 
-## Red NAT en VirtualBox
+
+
+## 1. Creación de red NAT en VirtualBox
 
 <!-- > https://en.wikipedia.org/wiki/Reserved_IP_addresses -->
 
@@ -30,11 +38,13 @@ Partición `k8s-cluster` de 420GB (`/dev/nvme0n1p1`) en mi máquina MSI GL76 baj
 # vboxmanage list dhcpservers
 ``` -->
 
+## 2. Configuración de DHCP y DNS en `10_dhcp_dns`
 
-### `10_ubuntu_server` DHCP/DNS server (no GUI)
 
 <details>
-<summary> DHCP/DNS</summary>
+<summary>Pasos de Instalación y Configuración en Ubuntu Server</summary>
+
+<br>
 
 > Plantilla: [ASIR/Redes/Entregas/T3.md](https://github.com/pabloqpacin/ASIR/blob/main/Redes/Entregas/T3.md) 
 
@@ -46,6 +56,8 @@ sudo apt-get update && sudo apt-get install \
 ```
 
 Asignar dirección IP estática
+
+<!-- Quizá la propia config DHCP/DNS sería suficiente? -->
 
 ```bash
 sudo mv /etc/netplan/00-installer-config.yaml{,.bak}
@@ -94,7 +106,7 @@ subnet 10.0.20.0 netmask 255.255.255.0 {
   option domain-name "maremoto.net";
 }
 
-host 20_ubuntu_seismo {
+host 20_maremoto {
   hardware ethernet 08:00:27:e7:c3:d9;
   fixed-address 10.0.20.20;
 }
@@ -181,24 +193,47 @@ sudo systemctl restart isc-dhcp-server named
 
 
 
-### `20_ubuntu_seismo` Réplica Seísmo
+## 3. Despliegue en `20_maremoto` de software tipo SEISMO (ELK Stack, Suricata)
 
-<!-- - [scripts/install_stack.sh](scripts/install_stack.sh): instalación de `netdiscover`, Elastic Stack, Suricata... -->
+- [scripts/maremoto.sh](scripts/maremoto.sh): instalación de `netdiscover`, Elastic Stack, Suricata...
 
-```bash
-sudo apt install \
-  netdiscover
+
+### Uso de Netdiscover
+
+<details>
+
+```txt
+$ sudo netdiscover -r 10.0.20.0/24 -i <enp0sX>
+
+ Currently scanning: Finished!   |   Screen View: Unique Hosts
+
+ 10 Captured ARP Req/Rep packets, from 5 hosts.   Total size: 600
+ _____________________________________________________________________________
+   IP            At MAC Address     Count     Len  MAC Vendor / Hostname
+ -----------------------------------------------------------------------------
+ 10.0.20.1       52:54:00:12:35:00      1      60  Unknown vendor
+ 10.0.20.2       52:54:00:12:35:00      2     120  Unknown vendor
+ 10.0.20.10      08:00:27:9c:18:cc      2     120  PCS Systemtechnik GmbH
+ 10.0.20.40      08:00:27:7a:91:4f      3     180  PCS Systemtechnik GmbH
+ 10.0.20.41      08:00:27:50:41:8f      2     120  PCS Systemtechnik GmbH
 ```
 
+NOTAS:
+- "no se detecta" el propio equipo que hace el escaneo, no aparece su IP
+- cuidado desde `10_dhcp_dns`, aunque se especifique la subred 10.x, solo pilla la 192.x salvo que se indique interfaz de red con `-i`
 
-### `4n_ubuntu` cliente (DHCP)
+</details>
+
+### Configuración y uso de ELK Stack
+### Configuración y uso de Suricata
+
+## 4. Clientes potencialmente vulnerables
+
+### Cliente `4N_ubuntu`
+
+### Cliente `4N_win11_pro`
+### Cliente `4N_win11_home`
+### Cliente `4N_win10_home`
+### Cliente `4N_win10_pro`
 
 
-### `4n_windows_11` cliente
-
-Windows 11 Pro ES (compil. X)
-
-
-### `4n_windows_10` cliente
-
-  TODO
